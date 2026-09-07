@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Provider(BaseSettings):
     name: str
     base_url: str
-    api_key: str
+    api_key: str = ""
     model: str
 
 
@@ -20,12 +20,18 @@ class Settings(BaseSettings):
     cerebras_api_key: str = ""
     cerebras_model: str = "llama-3.3-70b"
 
+    enable_local_fallback: bool = True
+    ollama_base_url: str = "http://ollama:11434/v1"
+    ollama_model: str = "qwen2.5:3b"
+
     request_timeout_seconds: float = 30.0
+    rate_limit_cooldown_seconds: float = 60.0
+    server_error_cooldown_seconds: float = 15.0
 
 
 settings = Settings()
 
-PROVIDER_CHAIN: list[Provider] = [
+_remote_providers = [
     p
     for p in [
         Provider(
@@ -49,3 +55,15 @@ PROVIDER_CHAIN: list[Provider] = [
     ]
     if p.api_key
 ]
+
+PROVIDER_CHAIN: list[Provider] = _remote_providers + (
+    [
+        Provider(
+            name="local",
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_model,
+        )
+    ]
+    if settings.enable_local_fallback
+    else []
+)
