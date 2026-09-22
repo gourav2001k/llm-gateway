@@ -89,8 +89,54 @@ curl -s http://localhost:8000/v1/chat/completions \
   -d '{"model":"gateway-chat","messages":[{"role":"user","content":"hi"}]}'
 ```
 
+## Testing
+
+```bash
+make test
+```
+
+Real integration check, no mocking — calls every provider currently
+configured in your `.env` (Groq, Gemini, both OpenRouter modes, local Ollama)
+with an actual request and confirms each one actually responds. Runs inside
+the built gateway image on the compose network, so `local` can resolve the
+`ollama` hostname. Needs a real `.env` and, for the local case, the model
+already pulled (`make pull-model`). `make test` always rebuilds first, so it
+never runs against a stale image.
+
 ## Deploying elsewhere
 
 The whole thing is just the `Dockerfile` + `docker-compose.yml` — clone the
 repo on the target box, drop in a real `.env`, and `make up`. No external
 state beyond the `ollama-data` volume and whatever's in `.env`.
+
+### Deploying via Dokploy
+
+1. **Git provider**: connect GitHub under Dokploy's Git settings. This is a
+   two-step handshake — creating the GitHub App in Dokploy is not enough, you
+   must also go to the App's page on GitHub itself and click **Install App**,
+   picking this repo. Skipping that step leaves the provider stuck showing
+   "Action Required" with no working button to fix it from Dokploy's side.
+2. **Service type**: create a **Compose** service (not "Application" — that's
+   for single-Dockerfile apps). Point it at this repo/branch `main`; Dokploy
+   auto-detects `./docker-compose.yml` at the repo root correctly as-is.
+3. **Environment tab**: paste in real values for every var from
+   `.env.example`. Dokploy writes them to a `.env` file next to the compose
+   file on the server, which is exactly what `env_file: .env` on the `gateway`
+   service already expects — no compose changes needed.
+4. **Domains tab**: map your hostname to the `gateway` service on port `8000`
+   only. Leave `ollama` unmapped — it has no `ports:` entry in
+   `docker-compose.yml`, so it's already unreachable from outside the Docker
+   network. Once this is public over HTTPS, `GATEWAY_API_KEY` is the only
+   thing standing between the internet and your free-tier quota — use a long
+   random one.
+5. **Pull the local model**: after the first deploy, use Dokploy's **Open
+   Terminal** button. It drops you inside a *container's own shell*
+   (`docker exec` style), not the host — so pick the **ollama** container in
+   the dropdown, not `gateway` (the gateway image has no Docker CLI in it,
+   `docker ps` will fail there with "command not found", that's expected).
+   Inside the ollama container, run the `ollama` binary directly:
+   ```
+   ollama pull qwen2.5-coder:7b-instruct-q4_K_M
+   ```
+   (or whatever `OLLAMA_MODEL` you set). Confirm after any future redeploy
+   that the `ollama-data` volume survived and the model's still there.
